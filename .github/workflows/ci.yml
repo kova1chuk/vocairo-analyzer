@@ -36,28 +36,99 @@ jobs:
 
     steps:
       - name: Post build result
+        continue-on-error: true
         env:
           WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
           CONTAINER_RESULT: ${{ needs.container.result }}
           REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          ACTOR: ${{ github.actor }}
           SHA: ${{ github.sha }}
+          COMMIT_SUBJECT: ${{ github.event.head_commit.message }}
+          SERVER_URL: ${{ github.server_url }}
+          RUN_NUMBER: ${{ github.run_number }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           if [ -z "$WEBHOOK" ]; then
             echo "DISCORD_WEBHOOK not set, skipping"
             exit 0
           fi
-          if [ "$CONTAINER_RESULT" = "success" ]; then
-            TITLE="✅ analyzer build passed"
-            COLOR=3066993
-          else
-            TITLE="❌ analyzer build failed"
-            COLOR=15158332
-          fi
+          case "$CONTAINER_RESULT" in
+            success)
+              TITLE="✅ Vocairo · Аналізатор · CI"
+              COLOR=3066993
+              DESCRIPTION="Перевірки та складання контейнера успішні."
+              RESULT_LABEL="Успішно"
+              ;;
+            failure)
+              TITLE="❌ Vocairo · Аналізатор · CI"
+              COLOR=15158332
+              DESCRIPTION="Перевірки або складання контейнера завершилися помилкою."
+              RESULT_LABEL="Помилка"
+              ;;
+            cancelled)
+              TITLE="⏹️ Vocairo · Аналізатор · CI"
+              COLOR=16753920
+              DESCRIPTION="Перевірки та складання контейнера скасовано."
+              RESULT_LABEL="Скасовано"
+              ;;
+            skipped)
+              TITLE="⏭️ Vocairo · Аналізатор · CI"
+              COLOR=9807270
+              DESCRIPTION="Перевірки та складання контейнера пропущено."
+              RESULT_LABEL="Пропущено"
+              ;;
+            *) exit 0 ;;
+          esac
+          case "$BRANCH" in
+            main)
+              TARGET="production / main"
+              API_URL="https://api.vocairo.app"
+              API_LABEL="Публічний API"
+              ;;
+            dev)
+              TARGET="dev / dev"
+              API_URL="https://dev-api.vocairo.app"
+              API_LABEL="Dev API"
+              ;;
+            *)
+              TARGET="гілка $BRANCH"
+              API_URL="https://api.vocairo.app"
+              API_LABEL="Публічний API"
+              ;;
+          esac
           jq -n \
             --arg title "$TITLE" \
-            --arg desc "$REPO @ ${SHA:0:7}" \
-            --arg url "$RUN_URL" \
+            --arg description "$DESCRIPTION" \
+            --arg target "$TARGET" \
+            --arg branch "$BRANCH" \
+            --arg actor "$ACTOR" \
+            --arg sha "$SHA" \
+            --arg subject "$COMMIT_SUBJECT" \
+            --arg result "$RESULT_LABEL" \
+            --arg commit_url "$SERVER_URL/$REPO/commit/$SHA" \
+            --arg run_url "$RUN_URL" \
+            --arg api_url "$API_URL" \
+            --arg api_label "$API_LABEL" \
+            --arg run_number "$RUN_NUMBER" \
+            --arg run_attempt "$RUN_ATTEMPT" \
+            --arg timestamp "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
             --argjson color "$COLOR" \
-            '{embeds:[{title:$title,description:$desc,url:$url,color:$color}]}' \
-            | curl -sS -X POST -H "Content-Type: application/json" -d @- "$WEBHOOK" >/dev/null
+            'def inline: gsub("[\u0000-\u001f\u007f`]+"; " ") | .[0:160];
+            ($subject | split("\n")[0] // "" | inline) as $commit_subject |
+            {username:"Vocairo · CI",allowed_mentions:{parse:[]},embeds:[{
+              title:$title,description:$description,url:$run_url,color:$color,
+              fields:[
+                {name:"Ціль перевірки",value:($target | inline),inline:true},
+                {name:"Гілка",value:("`" + ($branch | inline) + "`"),inline:true},
+                {name:"Автор",value:("`" + ($actor | inline) + "`"),inline:true},
+                {name:"Коміт",value:("[`" + $sha[0:7] + "`](" + $commit_url + ")" +
+                  if $commit_subject == "" then "" else "\n`" + $commit_subject + "`" end)},
+                {name:"Результат CI",value:$result,inline:true},
+                {name:"Посилання",value:("[Логи CI](" + $run_url + ") · [" + $api_label + "](" + $api_url + ")")}
+              ],
+              footer:{text:("Запуск #" + $run_number + " · спроба " + $run_attempt)},
+              timestamp:$timestamp
+            }]}' \
+            | curl -fsS --max-time 10 -X POST -H "Content-Type: application/json" --data-binary @- "$WEBHOOK" >/dev/null
