@@ -40,6 +40,28 @@ CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:3006
 DEBUG=false
 ```
 
+## Error Monitoring
+
+Railway deployments report exceptions through Sentry SDK to the separate Better
+Stack application **Vocairo Analyzer (2787469)**. Local runs require
+`SENTRY_ENABLED=true`; `SENTRY_ENABLED=false` disables reporting on Railway too.
+`SENTRY_DSN` overrides the public ingest DSN. Environment/release default to
+`RAILWAY_ENVIRONMENT_NAME` and `RAILWAY_GIT_COMMIT_SHA`; explicit overrides use
+`SENTRY_ENVIRONMENT` and `SENTRY_RELEASE`.
+
+Only unexpected exceptions and handled HTTP 500 errors are reported. Expected
+401/422/503/504 responses (including unavailable OCR/providers) do not create
+bug reports. The adapter retains exception types, deployment metadata and source
+file/line call sites, and removes messages, users, requests, breadcrumbs, local
+variables and source context. Logs, traces, profiles and metrics are disabled.
+
+Run `python -m pytest -q tests/test_monitoring.py` to exercise the actual FastAPI
+and SDK pipeline with an in-memory transport. A deployment smoke check must use
+`SENTRY_ENVIRONMENT=smoke-test` and the `monitoring_smoke=true` tag, and verify
+the event's release and original file/line in Better Stack. Smoke events are
+verification records and must not create production bug tasks. Python tracebacks
+already contain file/line call sites; JavaScript source-map upload is separate.
+
 ## Word Filtering
 
 Text analysis returns candidates in `words` and diagnostic exclusions in
