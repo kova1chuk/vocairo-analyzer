@@ -7,11 +7,13 @@ from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
+from app.monitoring import init_monitoring
 from app.routers import health, text, enrichment, translation, image
 from app.services.nltk_resources import ensure_nltk_data
 
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+init_monitoring()
 
 
 @asynccontextmanager
